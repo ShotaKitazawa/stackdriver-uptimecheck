@@ -54,24 +54,24 @@ class GoogleClientMock:
     """
 
     def __init__(self):
-        pass
+        config = monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
+        config.name = "projects/test/UptimeCheckConfigs/test"
+        config.display_name = "test"
+        config.monitored_resource.type = "uptime_url"
+        config.monitored_resource.labels.update({"host": "example.net"})
+        config.http_check.path = "/"
+        config.http_check.port = 443
+        config.http_check.use_ssl = True
+        config.timeout.seconds = 10
+        config.period.seconds = 300
+        self.exist_config = config
 
     def list_uptime_check_configs(self, project_name):
         """
         project_name = "projects/XXX"
         """
-        if project_name == "projects/test":
-            config = monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
-            config.name = "project/test/UptimeCheckConfigs/test"
-            config.display_name = "test"
-            config.monitored_resource.type = "uptime_url"
-            config.monitored_resource.labels.update({"host": "example.net"})
-            config.http_check.path = "/"
-            config.http_check.port = 443
-            config.http_check.use_ssl = True
-            config.timeout.seconds = 10
-            config.period.seconds = 300
-            return [config]
+        if project_name == "/".join(self.exist_config.name.split("/")[0:2]):
+            return [self.exist_config]
         else:
             return []
 
@@ -79,18 +79,14 @@ class GoogleClientMock:
         """
         api_path = "projects/XXX/UptimeCheckConfigs/XXX"
         """
-        result = self.list_uptime_check_configs(
-            api_path.split("/")[0] + "/" + api_path.split("/")[1]
-        )
-        return (
-            result[0]
-            if not len(result) == 0 and result[0].display_name == api_path.split("/")[-1]
-            else monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
-        )
+        if api_path == self.exist_config.name:
+            return self.exist_config
+        else:
+            monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
 
     def update_uptime_check_config(self, config, field_mask):
         """
-        config = monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
+        config = <class 'google.cloud.monitoring_v3.types.UptimeCheckConfig>
         field_mask = <class 'google.protobuf.field_mask_pb2.FieldMask'>
         """
         # TODO field_mask の内容をconfigに反映
@@ -99,7 +95,7 @@ class GoogleClientMock:
     def create_uptime_check_config(self, project_name, config):
         """
         project_name = "projects/XXX"
-        config = monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
+        config = <class 'google.cloud.monitoring_v3.types.UptimeCheckConfig>
         """
         return (
             config
