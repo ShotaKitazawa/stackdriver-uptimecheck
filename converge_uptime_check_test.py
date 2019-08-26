@@ -57,6 +57,9 @@ class GoogleClientMock:
         pass
 
     def list_uptime_check_configs(self, project_name):
+        """
+        project_name = "projects/XXX"
+        """
         if project_name == "projects/test":
             config = monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
             config.name = "project/test/UptimeCheckConfigs/test"
@@ -72,31 +75,51 @@ class GoogleClientMock:
         else:
             return []
 
-    def get_uptime_check_config(self, config_name):
-        result = self.list_uptime_check_configs("projects/test")[0]
+    def get_uptime_check_config(self, api_path):
+        """
+        api_path = "projects/XXX/UptimeCheckConfigs/XXX"
+        """
+        result = self.list_uptime_check_configs(
+            api_path.split("/")[0] + "/" + api_path.split("/")[1]
+        )
         return (
-            result
-            if not result == "" and result.display_name == config_name
+            result[0]
+            if not len(result) == 0 and result[0].display_name == api_path.split("/")[-1]
             else monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
         )
 
-    def update_uptime_check_config(self, project_name, field_mask):
-        # TODO
-        # return (
-        #     config
-        #     if config.display_name == self.list_uptime_check_configs(project_name)[0]
-        #     else None
-        # )
+    def update_uptime_check_config(self, config, field_mask):
+        """
+        config = monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
+        field_mask = <class 'google.protobuf.field_mask_pb2.FieldMask'>
+        """
+        # TODO field_mask の内容をconfigに反映
+        return config
 
     def create_uptime_check_config(self, project_name, config):
+        """
+        project_name = "projects/XXX"
+        config = monitoring_v3.types.uptime_pb2.UptimeCheckConfig()
+        """
         return (
             config
-            if config.display_name != self.list_uptime_check_configs(project_name)[0]
+            if config.display_name not in self.list_uptime_check_configs(project_name)
             else None
         )
 
 
+# converge_uptime_check テスト用のモック
+def create_uptime_check_mock(project_name, config_name, target_uri, timeout_seconds, period_seconds):
+    return "called create_uptime_check_config"
+
+
+# converge_uptime_check テスト用のモック
+def update_uptime_check_mock(project_name, config_name, target_uri, timeout_seconds, period_seconds):
+    return "called update_uptime_check_config"
+
+
 class Test:
+    # parse_uri のテスト
     class TestParseURI:
         def test_parse_uri_success_01(self):
             uri = "http://example.com/path/to/"
@@ -130,10 +153,12 @@ class Test:
             with pytest.raises(converge_uptime_check.InvalidURL):
                 proto, host, port, path = converge_uptime_check.parse_uri(uri)
 
+    # UptimeCheckConfig クラスのテスト
     class TestUptimeCheck:
         uptime_check_config = converge_uptime_check.UptimeCheckConfig(test=True)
         uptime_check_config.client = GoogleClientMock()
 
+        # createできることのテスト
         def test_create_uptime_check_config(self):
             result = self.uptime_check_config.create_uptime_check_config(
                 project_name="projects/test",
@@ -150,6 +175,7 @@ class Test:
             assert result.timeout.seconds == 10
             assert result.period.seconds == 300
 
+        # updateできることのテスト
         def test_update_uptime_check_config(self):
             result = self.uptime_check_config.update_uptime_check_config(
                 project_name="projects/test",
@@ -158,20 +184,46 @@ class Test:
                 timeout_seconds=10,
                 period_seconds=60,
             )
-            assert result.display_name == "test"
-            assert result.monitored_resource.labels["host"] == "example.net"
-            assert result.http_check.path == "/"
-            assert result.http_check.port == 443
-            assert result.http_check.use_ssl
-            assert result.timeout.seconds == 10
+            # TODO: GoogleClientMock.update_uptime_check_config() の TODO 参照
+            # assert result.display_name == "test"
+            # assert result.monitored_resource.labels["host"] == "example.net"
+            # assert result.http_check.path == "/"
+            # assert result.http_check.port == 443
+            # assert result.http_check.use_ssl
+            # assert result.timeout.seconds == 10
             assert result.period.seconds == 60
 
-        # def test_update_uptime_check_config_fail(self):
-        #     with pytest.raises(converge_uptime_check.MissingSpecifiedHost):
-        #         self.uptime_check_config.update_uptime_check_config(
-        #             project_name="projects/test",
-        #             config_name="test",
-        #             target_uri="https://example.com",
-        #             timeout_seconds=10,
-        #             period_seconds=60,
-        #         )
+        # ホストを変更してupdateするとraiseすることのテスト
+        def test_update_uptime_check_config_fail(self):
+            with pytest.raises(converge_uptime_check.MissingSpecifiedHost):
+                self.uptime_check_config.update_uptime_check_config(
+                    project_name="projects/test",
+                    config_name="test",
+                    target_uri="https://example.com",
+                    timeout_seconds=10,
+                    period_seconds=60,
+                )
+
+        # converge_uptime_check_config() の config_name なリソースが存在しないならば create_uptime_check_config() を呼び出すテスト
+        def test_converge_uptime_check_config_01(self):
+            self.uptime_check_config.create_uptime_check_config = create_uptime_check_mock
+            self.uptime_check_config.update_uptime_check_config = update_uptime_check_mock
+            assert self.uptime_check_config.converge_uptime_check_configs(
+                project_name="projects/test",
+                config_name="create_test",
+                target_uri="https://example.net",
+                timeout_seconds=10,
+                period_seconds=300,
+            ) == "called create_uptime_check_config"
+
+        # converge_uptime_check_config() の config_name なリソースが既に存在するならば update_uptime_check_config() を呼び出すテスト
+        def test_converge_uptime_check_config_02(self):
+            self.uptime_check_config.create_uptime_check_config = create_uptime_check_mock
+            self.uptime_check_config.update_uptime_check_config = update_uptime_check_mock
+            assert self.uptime_check_config.converge_uptime_check_configs(
+                project_name="projects/test",
+                config_name="test",
+                target_uri="https://example.net",
+                timeout_seconds=10,
+                period_seconds=300,
+            ) == "called update_uptime_check_config"
